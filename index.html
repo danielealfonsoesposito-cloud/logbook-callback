@@ -4,32 +4,27 @@
   <meta charset="utf-8">
   <title>Login completato...</title>
   <style>
-    body {
-      background: #0f0f0f;
-      color: #888;
-      font-family: monospace;
-      display: flex;
-      align-items: center;
-      justify-content: center;
-      height: 100vh;
-      margin: 0;
-      font-size: 14px;
-    }
+    body { background: #0f0f0f; color: #888; font-family: monospace; display: flex; align-items: center; justify-content: center; height: 100vh; margin: 0; font-size: 14px; }
   </style>
 </head>
 <body>
   <span>Login completato, puoi chiudere questa finestra...</span>
   <script>
-    // Legge il token dall'URL e lo manda alla finestra parent (l'app)
-    const hash = window.location.hash.substring(1);
-    const params = new URLSearchParams(hash);
-    const token = params.get("access_token");
- 
+    const full = window.location.href;
+    const hashIdx = full.indexOf('#');
+    const qIdx = full.indexOf('?');
+    let paramStr = '';
+    if (hashIdx !== -1) paramStr = full.substring(hashIdx + 1);
+    else if (qIdx !== -1) paramStr = full.substring(qIdx + 1);
+    
+    const params = new URLSearchParams(paramStr);
+    const token = params.get('access_token');
+
     if (token && window.opener) {
-      window.opener.postMessage({ type: "GOOGLE_TOKEN", token }, "*");
-      setTimeout(() => window.close(), 800);
+      window.opener.postMessage({ type: 'GOOGLE_TOKEN', token: token }, '*');
+      setTimeout(() => window.close(), 1000);
     } else {
-      document.querySelector("span").textContent = "Errore: token non trovato.";
+      document.querySelector('span').textContent = 'Errore: token non trovato. Riprova.';
     }
   </script>
 </body>
