@@ -1,35 +1,524 @@
 <!DOCTYPE html>
-<html>
+<html lang="it">
 <head>
   <meta charset="utf-8">
-  <title>Login completato...</title>
+  <meta name="viewport" content="width=device-width, initial-scale=1, viewport-fit=cover">
+  <meta name="apple-mobile-web-app-capable" content="yes">
+  <meta name="apple-mobile-web-app-status-bar-style" content="black-translucent">
+  <meta name="apple-mobile-web-app-title" content="Logbook">
+  <title>Logbook</title>
   <style>
-    body { background: #0f0f0f; color: #c8f55a; font-family: monospace; display: flex; align-items: center; justify-content: center; height: 100vh; margin: 0; font-size: 14px; }
+    :root {
+      --bg: #0f0f0f;
+      --surface: #1a1a1a;
+      --surface-high: #242424;
+      --border: #2e2e2e;
+      --accent: #c8f55a;
+      --accent-dim: #8ab33a;
+      --text: #f0f0f0;
+      --muted: #888;
+      --dim: #555;
+      --red: #ff4d4d;
+    }
+    * { box-sizing: border-box; margin: 0; padding: 0; -webkit-tap-highlight-color: transparent; }
+    body {
+      background: var(--bg);
+      color: var(--text);
+      font-family: -apple-system, 'Inter', sans-serif;
+      min-height: 100vh;
+      min-height: -webkit-fill-available;
+      max-width: 480px;
+      margin: 0 auto;
+      padding-bottom: env(safe-area-inset-bottom);
+    }
+    .app { display: flex; flex-direction: column; min-height: 100vh; padding-bottom: 80px; }
+
+    /* LOGIN */
+    .login-screen {
+      display: flex; flex-direction: column; align-items: center;
+      justify-content: center; min-height: 100vh;
+      padding: 40px 24px; gap: 28px;
+    }
+    .login-logo { font-family: 'Courier New', monospace; font-size: 11px; letter-spacing: 0.2em; color: var(--muted); text-transform: uppercase; }
+    .login-title { font-size: 32px; font-weight: 700; text-align: center; line-height: 1.2; }
+    .login-title span { color: var(--accent); }
+    .login-desc { font-size: 15px; color: var(--muted); text-align: center; line-height: 1.6; }
+    .login-btn {
+      display: flex; align-items: center; gap: 12px; justify-content: center;
+      background: var(--accent); color: #0f0f0f; border: none;
+      padding: 16px 28px; border-radius: 12px; font-size: 16px; font-weight: 700;
+      cursor: pointer; width: 100%; -webkit-appearance: none;
+    }
+    .login-warn {
+      font-size: 13px; color: var(--muted); text-align: center; line-height: 1.6;
+      background: var(--surface); border: 1px solid var(--border);
+      border-radius: 10px; padding: 14px 16px; width: 100%;
+    }
+
+    /* HEADER */
+    .header {
+      position: sticky; top: 0; z-index: 100;
+      background: var(--bg); border-bottom: 1px solid var(--border);
+      padding: 14px 16px;
+      padding-top: calc(14px + env(safe-area-inset-top));
+      display: flex; align-items: center; justify-content: space-between;
+    }
+    .header-title { font-family: 'Courier New', monospace; font-size: 13px; font-weight: 700; color: var(--accent); letter-spacing: 0.08em; text-transform: uppercase; }
+    .header-sub { font-size: 11px; color: var(--muted); margin-top: 2px; }
+    .logout-btn { background: none; border: 1px solid var(--border); color: var(--muted); font-size: 11px; padding: 5px 12px; border-radius: 6px; cursor: pointer; -webkit-appearance: none; }
+
+    /* CHIPS */
+    .selector-row { display: flex; gap: 8px; padding: 12px 16px; overflow-x: auto; scrollbar-width: none; border-bottom: 1px solid var(--border); -webkit-overflow-scrolling: touch; }
+    .selector-row::-webkit-scrollbar { display: none; }
+    .chip {
+      flex-shrink: 0; background: var(--surface); border: 1px solid var(--border);
+      color: var(--muted); font-size: 12px; font-weight: 600;
+      padding: 7px 16px; border-radius: 20px; cursor: pointer;
+      white-space: nowrap; -webkit-appearance: none;
+    }
+    .chip.active { background: var(--accent); color: #0f0f0f; border-color: var(--accent); }
+
+    /* EXERCISE CARDS */
+    .ex-card { margin: 10px 16px 0; background: var(--surface); border: 1px solid var(--border); border-radius: 12px; overflow: hidden; }
+    .ex-card.expanded { border-color: var(--accent); }
+    .ex-header { padding: 16px; display: flex; align-items: center; justify-content: space-between; cursor: pointer; }
+    .ex-name { font-size: 15px; font-weight: 600; flex: 1; margin-right: 8px; line-height: 1.3; }
+    .ex-meta { display: flex; gap: 6px; align-items: center; flex-shrink: 0; }
+    .badge { font-family: 'Courier New', monospace; font-size: 10px; background: var(--surface-high); border: 1px solid var(--border); color: var(--muted); padding: 3px 8px; border-radius: 4px; white-space: nowrap; }
+    .badge.accent { color: var(--accent); border-color: var(--accent-dim); }
+    .chevron { color: var(--dim); font-size: 14px; margin-left: 4px; transition: transform 0.2s; display: inline-block; }
+    .chevron.open { transform: rotate(180deg); }
+
+    .ex-body { border-top: 1px solid var(--border); padding: 16px; display: flex; flex-direction: column; gap: 16px; }
+    .tech-note { font-size: 13px; color: var(--muted); line-height: 1.5; background: var(--surface-high); border-radius: 8px; padding: 10px 12px; border-left: 3px solid var(--accent-dim); }
+    .set-label { font-size: 11px; font-weight: 600; color: var(--muted); text-transform: uppercase; letter-spacing: 0.08em; margin-bottom: 8px; }
+
+    .set-grid-header { display: grid; grid-template-columns: 32px 1fr 1fr; gap: 6px; margin-bottom: 4px; }
+    .input-head { font-size: 10px; color: var(--dim); text-align: center; }
+    .set-row { display: grid; grid-template-columns: 32px 1fr 1fr; gap: 6px; align-items: center; margin-bottom: 8px; }
+    .set-num { font-family: 'Courier New', monospace; font-size: 12px; color: var(--dim); text-align: center; }
+    .set-input {
+      background: var(--surface-high); border: 1px solid var(--border);
+      color: var(--text); font-size: 17px; font-weight: 600;
+      text-align: center; padding: 10px 4px; border-radius: 8px; width: 100%;
+      font-family: 'Courier New', monospace;
+      -webkit-appearance: none; appearance: none;
+    }
+    .set-input:focus { outline: none; border-color: var(--accent); }
+    .set-input.filled { border-color: var(--accent-dim); color: var(--accent); }
+
+    .feedback-area {
+      background: var(--surface-high); border: 1px solid var(--border);
+      color: var(--text); font-size: 14px; padding: 12px;
+      border-radius: 8px; width: 100%; resize: none;
+      font-family: -apple-system, sans-serif; line-height: 1.5; min-height: 72px;
+      -webkit-appearance: none;
+    }
+    .feedback-area:focus { outline: none; border-color: var(--accent); }
+
+    .save-btn {
+      background: var(--accent); color: #0f0f0f; border: none; width: 100%;
+      padding: 14px; border-radius: 10px; font-size: 14px; font-weight: 700;
+      cursor: pointer; font-family: 'Courier New', monospace; letter-spacing: 0.05em;
+      -webkit-appearance: none;
+    }
+    .save-btn:disabled { opacity: 0.4; }
+
+    /* BOTTOM NAV */
+    .bottom-nav {
+      position: fixed; bottom: 0; left: 50%; transform: translateX(-50%);
+      width: 100%; max-width: 480px;
+      background: var(--bg); border-top: 1px solid var(--border);
+      display: flex; padding: 8px 0;
+      padding-bottom: calc(8px + env(safe-area-inset-bottom));
+    }
+    .nav-btn {
+      flex: 1; display: flex; flex-direction: column; align-items: center; gap: 3px;
+      background: none; border: none; color: var(--dim); font-size: 10px;
+      font-weight: 600; cursor: pointer; padding: 6px 0;
+      text-transform: uppercase; letter-spacing: 0.06em;
+    }
+    .nav-btn.active { color: var(--accent); }
+    .nav-icon { font-size: 20px; }
+
+    /* TOAST */
+    .toast {
+      position: fixed; bottom: 90px; left: 50%; transform: translateX(-50%);
+      background: var(--accent); color: #0f0f0f; font-size: 14px; font-weight: 700;
+      padding: 12px 24px; border-radius: 24px; z-index: 999;
+      animation: fadeup 0.2s ease; white-space: nowrap;
+    }
+    .toast.error { background: var(--red); color: #fff; }
+    @keyframes fadeup { from { opacity: 0; transform: translate(-50%, 12px); } to { opacity: 1; transform: translate(-50%, 0); } }
+
+    /* LOADING */
+    .loading { display: flex; flex-direction: column; align-items: center; justify-content: center; min-height: 50vh; gap: 16px; color: var(--muted); font-size: 14px; }
+    .spinner { width: 36px; height: 36px; border: 3px solid var(--border); border-top-color: var(--accent); border-radius: 50%; animation: spin 0.7s linear infinite; }
+    @keyframes spin { to { transform: rotate(360deg); } }
+    .empty { padding: 48px 24px; text-align: center; color: var(--muted); font-size: 14px; line-height: 1.7; }
+
+    /* VOLUME */
+    .vol-section { padding: 16px; }
+    .vol-title { font-family: 'Courier New', monospace; font-size: 11px; color: var(--muted); text-transform: uppercase; letter-spacing: 0.1em; margin-bottom: 12px; }
+    .vol-card { background: var(--surface); border: 1px solid var(--border); border-radius: 10px; padding: 14px 16px; margin-bottom: 8px; display: flex; justify-content: space-between; align-items: center; }
+    .vol-name { font-size: 14px; font-weight: 500; }
+    .vol-sub { font-size: 11px; color: var(--muted); margin-top: 2px; }
+    .vol-num { font-family: 'Courier New', monospace; font-size: 20px; font-weight: 700; color: var(--accent); text-align: right; }
+    .vol-pct { font-size: 11px; color: var(--muted); text-align: right; }
   </style>
 </head>
 <body>
-  <span>✓ Login completato, torna all'app...</span>
-  <script>
-    const full = window.location.href;
-    const hashIdx = full.indexOf('#');
-    const paramStr = hashIdx !== -1 ? full.substring(hashIdx + 1) : '';
-    const params = new URLSearchParams(paramStr);
-    const token = params.get('access_token');
+<div id="root"></div>
 
-    if (token) {
-      // Prova postMessage verso opener
-      if (window.opener) {
-        try {
-          window.opener.postMessage({ type: 'GOOGLE_TOKEN', token: token }, '*');
-        } catch(e) {}
-      }
-      // Salva anche su localStorage come fallback
-      localStorage.setItem('gtoken', token);
-      localStorage.setItem('gtoken_ts', Date.now().toString());
-      setTimeout(() => window.close(), 1500);
-    } else {
-      document.querySelector('span').textContent = 'Errore: token non trovato.';
+<script>
+const CLIENT_ID = "602616909703-f4mi14p4sr2gf45d2vthgetad8bimo40.apps.googleusercontent.com";
+const SHEET_ID = "1uWjtgWv38mw7EqSueHlHsCbbjHHAR9virOPCHBFNusE";
+const SCOPES = "https://www.googleapis.com/auth/spreadsheets";
+const REDIRECT_URI = "https://danielealfonsoesposito-cloud.github.io/logbook-callback";
+const SESSIONS = ["P1","P2","P3","P4","P5","P6","C1","C2","C3","C4","C5","C6"];
+const ALL_WEEKS = [1,2,3,4,5,6,7,8,9,10,11,12];
+
+// ── State ──────────────────────────────────────────────────────
+let state = {
+  token: sessionStorage.getItem("gtoken") || null,
+  week: 1, session: "P1",
+  exercises: [], inputs: {}, expanded: null,
+  loading: false, saving: null, tab: "workout", toast: null,
+};
+
+function setState(patch) {
+  state = { ...state, ...patch };
+  render();
+}
+
+// ── OAuth ───────────────────────────────────────────────────────
+function login() {
+  const params = new URLSearchParams({
+    client_id: CLIENT_ID,
+    redirect_uri: REDIRECT_URI,
+    response_type: "token",
+    scope: SCOPES,
+    prompt: "select_account",
+  });
+  window.location.href = `https://accounts.google.com/o/oauth2/v2/auth?${params}`;
+}
+
+// On load: check for token in URL hash (redirect flow)
+(function checkToken() {
+  const hash = window.location.hash.substring(1);
+  const params = new URLSearchParams(hash);
+  const token = params.get("access_token");
+  if (token) {
+    sessionStorage.setItem("gtoken", token);
+    state.token = token;
+    window.history.replaceState(null, "", window.location.pathname);
+  }
+})();
+
+// ── Sheets helpers ──────────────────────────────────────────────
+function colLetter(n) {
+  let s = "";
+  while (n >= 0) { s = String.fromCharCode(65 + (n % 26)) + s; n = Math.floor(n / 26) - 1; }
+  return s;
+}
+
+function extractSession(rows, sessionCode, weekNum) {
+  const exList = [];
+  let inSection = false, weekColStart = -1;
+  const weekInBlock = weekNum <= 6 ? weekNum - 1 : weekNum - 7;
+  for (let r = 0; r < rows.length; r++) {
+    const row = rows[r];
+    if (!row) continue;
+    if (row[0] === sessionCode && !inSection) { inSection = true; continue; }
+    if (!inSection) continue;
+    if (row[0] === "ESERCIZIO") { weekColStart = 5 + weekInBlock * 13; continue; }
+    if (row[0] && row[0] !== sessionCode && SESSIONS.includes(row[0])) break;
+    if (row[0] && row[0].toString().startsWith("Voto")) break;
+    if (row[0] && row[0].toString().trim() !== "" && weekColStart >= 0) {
+      const numSerie = parseInt(row[weekColStart]) || 3;
+      exList.push({
+        name: row[0], note: row[2] || "", rest: row[3] || "",
+        numSerie: isNaN(numSerie) ? 3 : numSerie,
+        rep: row[weekColStart + 1] || "", tecnica: row[weekColStart + 2] || "",
+        existing: {
+          carico: row[weekColStart + 3] || "",
+          repFatte: row[weekColStart + 4] || "",
+          feedback: row[weekColStart + 5] || "",
+        },
+        sheetRow: r,
+        sheetColCarico: weekColStart + 3,
+        sheetColRepFatte: weekColStart + 4,
+        sheetColFeedback: weekColStart + 5,
+      });
     }
-  </script>
+  }
+  return exList;
+}
+
+async function fetchSession() {
+  if (!state.token) return;
+  setState({ loading: true, exercises: [], inputs: {}, expanded: null });
+  const sheetName = state.week <= 6 ? "PROG 1_6" : "PROG 7_13";
+  try {
+    const range = encodeURIComponent(`${sheetName}!A1:BZ300`);
+    const res = await fetch(
+      `https://sheets.googleapis.com/v4/spreadsheets/${SHEET_ID}/values/${range}`,
+      { headers: { Authorization: `Bearer ${state.token}` } }
+    );
+    if (res.status === 401) { sessionStorage.removeItem("gtoken"); setState({ token: null, loading: false }); return; }
+    const data = await res.json();
+    const exercises = extractSession(data.values || [], state.session, state.week);
+    const inputs = {};
+    exercises.forEach((ex, i) => {
+      const cArr = ex.existing.carico.toString().split(",").map(s => s.trim());
+      const rArr = ex.existing.repFatte.toString().split(",").map(s => s.trim());
+      inputs[i] = {
+        sets: Array.from({ length: ex.numSerie }, (_, s) => ({ load: cArr[s] || "", reps: rArr[s] || "" })),
+        feedback: ex.existing.feedback || "",
+      };
+    });
+    setState({ exercises, inputs, loading: false });
+  } catch (e) {
+    showToast("Errore caricamento", true);
+    setState({ loading: false });
+  }
+}
+
+async function saveExercise(exIdx) {
+  const ex = state.exercises[exIdx];
+  const inp = state.inputs[exIdx];
+  if (!ex || !inp) return;
+  setState({ saving: exIdx });
+  const sheetName = state.week <= 6 ? "PROG 1_6" : "PROG 7_13";
+  try {
+    const rowNum = ex.sheetRow + 1;
+    const body = {
+      valueInputOption: "RAW",
+      data: [
+        { range: `${sheetName}!${colLetter(ex.sheetColCarico)}${rowNum}`, values: [[inp.sets.map(s => s.load || "").join(", ")]] },
+        { range: `${sheetName}!${colLetter(ex.sheetColRepFatte)}${rowNum}`, values: [[inp.sets.map(s => s.reps || "").join(", ")]] },
+        { range: `${sheetName}!${colLetter(ex.sheetColFeedback)}${rowNum}`, values: [[inp.feedback || ""]] },
+      ],
+    };
+    const res = await fetch(
+      `https://sheets.googleapis.com/v4/spreadsheets/${SHEET_ID}/values:batchUpdate`,
+      { method: "POST", headers: { Authorization: `Bearer ${state.token}`, "Content-Type": "application/json" }, body: JSON.stringify(body) }
+    );
+    if (!res.ok) { const err = await res.json(); throw new Error(err.error?.message); }
+    showToast("✓ " + ex.name.split(" ")[0] + " salvato");
+  } catch(e) {
+    showToast("Errore: " + e.message, true);
+  } finally {
+    setState({ saving: null });
+  }
+}
+
+function showToast(msg, isError = false) {
+  setState({ toast: { msg, error: isError } });
+  setTimeout(() => setState({ toast: null }), 2500);
+}
+
+function updateSet(exIdx, setIdx, field, val) {
+  const inputs = { ...state.inputs };
+  const sets = [...(inputs[exIdx]?.sets || [])];
+  sets[setIdx] = { ...sets[setIdx], [field]: val };
+  inputs[exIdx] = { ...inputs[exIdx], sets };
+  setState({ inputs });
+}
+
+function updateFeedback(exIdx, val) {
+  const inputs = { ...state.inputs };
+  inputs[exIdx] = { ...inputs[exIdx], feedback: val };
+  setState({ inputs });
+}
+
+// ── Render ──────────────────────────────────────────────────────
+function render() {
+  const root = document.getElementById("root");
+  if (!state.token) {
+    root.innerHTML = renderLogin();
+    return;
+  }
+  root.innerHTML = renderApp();
+  // Attach event listeners after render
+  attachEvents();
+}
+
+function renderLogin() {
+  return `
+    <div class="login-screen">
+      <div class="login-logo">Logbook ↗</div>
+      <div>
+        <div class="login-title">Il tuo allenamento,<br><span>sempre con te.</span></div>
+      </div>
+      <p class="login-desc">Connetti il tuo account Google per sincronizzare la scheda con il tuo coach.</p>
+      <button class="login-btn" onclick="login()">
+        <svg width="20" height="20" viewBox="0 0 48 48">
+          <path fill="#FFC107" d="M43.611 20.083H42V20H24v8h11.303C33.654 32.657 29.332 36 24 36c-6.627 0-12-5.373-12-12s5.373-12 12-12c3.059 0 5.842 1.154 7.961 3.039l5.657-5.657C34.046 6.053 29.268 4 24 4 12.955 4 4 12.955 4 24s8.955 20 20 20 20-8.955 20-20c0-1.341-.138-2.65-.389-3.917z"/>
+          <path fill="#FF3D00" d="M6.306 14.691l6.571 4.819C14.655 15.108 18.961 12 24 12c3.059 0 5.842 1.154 7.961 3.039l5.657-5.657C34.046 6.053 29.268 4 24 4 16.318 4 9.656 8.337 6.306 14.691z"/>
+          <path fill="#4CAF50" d="M24 44c5.166 0 9.86-1.977 13.409-5.192l-6.19-5.238A11.91 11.91 0 0 1 24 36c-5.316 0-9.828-3.222-11.552-7.799l-6.522 5.025C9.505 39.556 16.227 44 24 44z"/>
+          <path fill="#1976D2" d="M43.611 20.083H42V20H24v8h11.303a12.04 12.04 0 0 1-4.087 5.571l.003-.002 6.19 5.238C36.971 39.205 44 34 44 24c0-1.341-.138-2.65-.389-3.917z"/>
+        </svg>
+        Accedi con Google
+      </button>
+      <div class="login-warn">💡 Dopo il login verrai riportato qui automaticamente.</div>
+    </div>
+  `;
+}
+
+function renderApp() {
+  const { week, session, exercises, inputs, expanded, loading, saving, tab, toast } = state;
+  const sheetName = week <= 6 ? "PROG 1_6" : "PROG 7_13";
+
+  const weeks = ALL_WEEKS.map(w =>
+    `<button class="chip ${week === w ? "active" : ""}" onclick="selectWeek(${w})">${w <= 6 ? "W" + w : "W" + w}</button>`
+  ).join("");
+
+  const sessions = SESSIONS.map(s =>
+    `<button class="chip ${session === s ? "active" : ""}" onclick="selectSession('${s}')">${s}</button>`
+  ).join("");
+
+  let content = "";
+  if (tab === "workout") {
+    if (loading) {
+      content = `<div class="loading"><div class="spinner"></div>Carico la scheda…</div>`;
+    } else if (exercises.length === 0) {
+      content = `<div class="empty">Nessun esercizio trovato per ${session} – Settimana ${week}.<br>Controlla che la scheda sia compilata dal coach.</div>`;
+    } else {
+      content = exercises.map((ex, i) => renderExCard(ex, i, inputs[i], expanded === i, saving === i)).join("");
+    }
+  } else {
+    content = renderVolume(exercises, inputs);
+  }
+
+  return `
+    <div class="app">
+      <div class="header">
+        <div>
+          <div class="header-title">Logbook</div>
+          <div class="header-sub">${session} · Settimana ${week} · ${sheetName}</div>
+        </div>
+        <button class="logout-btn" onclick="logout()">Esci</button>
+      </div>
+
+      <div class="selector-row">${weeks}</div>
+      <div class="selector-row">${sessions}</div>
+
+      ${tab === "workout" ? content : ""}
+      ${tab === "volume" ? content : ""}
+
+      <div class="bottom-nav">
+        <button class="nav-btn ${tab === "workout" ? "active" : ""}" onclick="setTab('workout')">
+          <span class="nav-icon">🏋️</span>Scheda
+        </button>
+        <button class="nav-btn ${tab === "volume" ? "active" : ""}" onclick="setTab('volume')">
+          <span class="nav-icon">📊</span>Volume
+        </button>
+      </div>
+
+      ${toast ? `<div class="toast ${toast.error ? "error" : ""}">${toast.msg}</div>` : ""}
+    </div>
+  `;
+}
+
+function renderExCard(ex, i, inp, isExpanded, isSaving) {
+  inp = inp || { sets: [], feedback: "" };
+  const filledSets = (inp.sets || []).filter(s => s.load || s.reps).length;
+  const sets = isExpanded ? Array.from({ length: ex.numSerie }, (_, s) => {
+    const sd = inp.sets?.[s] || { load: "", reps: "" };
+    return `
+      <div class="set-row">
+        <div class="set-num">${s + 1}</div>
+        <input type="number" inputmode="decimal" class="set-input ${sd.load ? "filled" : ""}"
+          value="${sd.load}" placeholder="—"
+          onchange="updateSet(${i}, ${s}, 'load', this.value)"
+          oninput="updateSet(${i}, ${s}, 'load', this.value)">
+        <input type="number" inputmode="numeric" class="set-input ${sd.reps ? "filled" : ""}"
+          value="${sd.reps}" placeholder="—"
+          onchange="updateSet(${i}, ${s}, 'reps', this.value)"
+          oninput="updateSet(${i}, ${s}, 'reps', this.value)">
+      </div>`;
+  }).join("") : "";
+
+  return `
+    <div class="ex-card ${isExpanded ? "expanded" : ""}">
+      <div class="ex-header" onclick="toggleEx(${i})">
+        <div class="ex-name">${ex.name}</div>
+        <div class="ex-meta">
+          <span class="badge accent">${ex.numSerie}×${ex.rep}</span>
+          ${filledSets > 0 ? `<span class="badge">${filledSets}/${ex.numSerie}</span>` : ""}
+          <span class="chevron ${isExpanded ? "open" : ""}">▾</span>
+        </div>
+      </div>
+      ${isExpanded ? `
+        <div class="ex-body">
+          ${ex.tecnica ? `<div><div class="set-label">Tecnica</div><div class="tech-note">${ex.tecnica}</div></div>` : ""}
+          ${ex.note ? `<div><div class="set-label">Note</div><div class="tech-note">${ex.note}</div></div>` : ""}
+          <div>
+            <div class="set-label">Serie · Rep target: <span style="color:var(--accent)">${ex.rep}</span></div>
+            <div class="set-grid-header">
+              <div></div>
+              <div class="input-head">Carico (kg)</div>
+              <div class="input-head">Rep fatte</div>
+            </div>
+            ${sets}
+          </div>
+          <div>
+            <div class="set-label">Self feedback</div>
+            <textarea class="feedback-area" placeholder="Come è andata? Note su tecnica, sensazioni…"
+              oninput="updateFeedback(${i}, this.value)">${inp.feedback || ""}</textarea>
+          </div>
+          ${ex.rest ? `<div style="font-size:13px;color:var(--muted)">⏱ Recupero: <strong style="color:var(--text)">${ex.rest}</strong></div>` : ""}
+          <button class="save-btn" onclick="saveExercise(${i})" ${isSaving ? "disabled" : ""}>
+            ${isSaving ? "SALVO…" : "SALVA SU SHEETS ↗"}
+          </button>
+        </div>
+      ` : ""}
+    </div>`;
+}
+
+function renderVolume(exercises, inputs) {
+  const totalSets = exercises.reduce((acc, ex) => acc + (ex.numSerie || 0), 0);
+  const doneSets = Object.values(inputs).reduce((acc, inp) => acc + (inp?.sets || []).filter(s => s.load || s.reps).length, 0);
+  const cards = exercises.map((ex, i) => {
+    const done = (inputs[i]?.sets || []).filter(s => s.load || s.reps).length;
+    const pct = ex.numSerie ? Math.round((done / ex.numSerie) * 100) : 0;
+    return `
+      <div class="vol-card">
+        <div><div class="vol-name">${ex.name}</div><div class="vol-sub">${ex.numSerie} serie · ${ex.rep} rep</div></div>
+        <div><div class="vol-num">${pct}%</div><div class="vol-pct">${done}/${ex.numSerie}</div></div>
+      </div>`;
+  }).join("");
+  return `
+    <div class="vol-section">
+      <div class="vol-title">Riepilogo seduta</div>
+      <div class="vol-card">
+        <div class="vol-name">Serie completate</div>
+        <div class="vol-num">${doneSets}<span style="font-size:14px;color:var(--muted)">/${totalSets}</span></div>
+      </div>
+      ${cards}
+    </div>`;
+}
+
+// ── Event handlers ──────────────────────────────────────────────
+function toggleEx(i) {
+  setState({ expanded: state.expanded === i ? null : i });
+}
+function selectWeek(w) {
+  setState({ week: w, exercises: [], inputs: {}, expanded: null });
+  fetchSession();
+}
+function selectSession(s) {
+  setState({ session: s, exercises: [], inputs: {}, expanded: null });
+  fetchSession();
+}
+function setTab(t) { setState({ tab: t }); }
+function logout() { sessionStorage.removeItem("gtoken"); setState({ token: null }); }
+function attachEvents() {} // events are inline
+
+// ── Init ────────────────────────────────────────────────────────
+render();
+if (state.token) fetchSession();
+</script>
 </body>
 </html>
