@@ -176,6 +176,7 @@ const SHEET_ID = "1uWjtgWv38mw7EqSueHlHsCbbjHHAR9virOPCHBFNusE";
 const SCOPES = "https://www.googleapis.com/auth/spreadsheets";
 const REDIRECT_URI = "https://danielealfonsoesposito-cloud.github.io/logbook-callback";
 const SESSIONS = ["P1","P2","P3","P4","P5","P6","C1","C2","C3","C4","C5","C6"];
+const VISIBLE_SESSIONS = ["P1","P2","C1","C2","C3"];
 const ALL_WEEKS = [1,2,3,4,5,6,7,8,9,10,11,12];
 
 // ── State ──────────────────────────────────────────────────────
@@ -374,7 +375,7 @@ function renderApp() {
     `<button class="chip ${week === w ? "active" : ""}" onclick="selectWeek(${w})">${w <= 6 ? "W" + w : "W" + w}</button>`
   ).join("");
 
-  const sessions = SESSIONS.map(s =>
+  const sessions = VISIBLE_SESSIONS.map(s =>
     `<button class="chip ${session === s ? "active" : ""}" onclick="selectSession('${s}')">${s}</button>`
   ).join("");
 
