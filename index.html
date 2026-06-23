@@ -55,7 +55,7 @@
       border-radius: 10px; padding: 14px 16px; width: 100%;
     }
 
-    /* HEADER  */
+    /* HEADER */
     .header {
       position: sticky; top: 0; z-index: 100;
       background: var(--bg); border-bottom: 1px solid var(--border);
@@ -93,6 +93,11 @@
     /* EXERCISE CARDS */
     .ex-card { margin: 10px 16px 0; background: var(--surface); border: 1px solid var(--border); border-radius: 12px; overflow: hidden; }
     .ex-card.expanded { border-color: var(--accent); }
+    .ex-card.completed { border-color: var(--accent-dim); opacity: 0.85; }
+    .progress-row { padding: 4px 16px 14px; }
+    .progress-track { background: var(--surface); border: 1px solid var(--border); border-radius: 8px; height: 8px; overflow: hidden; }
+    .progress-fill { background: var(--accent); height: 100%; transition: width 0.3s ease; }
+    .progress-label { font-size: 11px; color: var(--muted); margin-top: 6px; text-align: center; font-family: 'Courier New', monospace; }
     .voto-card { border-color: var(--accent-dim); border-style: dashed; margin-bottom: 16px; }
     .voto-row { display: flex; gap: 12px; }
     .voto-row .set-input { max-width: 90px; }
@@ -110,6 +115,7 @@
     .ex-meta { display: flex; gap: 6px; align-items: center; flex-shrink: 0; }
     .badge { font-family: 'Courier New', monospace; font-size: 10px; background: var(--surface-high); border: 1px solid var(--border); color: var(--muted); padding: 3px 8px; border-radius: 4px; white-space: nowrap; }
     .badge.accent { color: var(--accent); border-color: var(--accent-dim); }
+    .badge.badge-done { color: #0f0f0f; background: var(--accent); border-color: var(--accent); font-weight: 700; }
     .chevron { color: var(--dim); font-size: 14px; margin-left: 4px; transition: transform 0.2s; display: inline-block; }
     .chevron.open { transform: rotate(180deg); }
 
@@ -147,6 +153,14 @@
       -webkit-appearance: none;
     }
     .save-btn:disabled { opacity: 0.4; }
+    .ex-actions { display: flex; flex-direction: column; gap: 8px; }
+    .next-btn {
+      background: var(--surface-high); color: var(--accent); border: 1px solid var(--accent-dim);
+      width: 100%; padding: 12px; border-radius: 10px; font-size: 13px; font-weight: 700;
+      cursor: pointer; font-family: 'Courier New', monospace; letter-spacing: 0.03em;
+      -webkit-appearance: none;
+    }
+    .next-btn:disabled { opacity: 0.4; }
 
     /* BOTTOM NAV */
     .bottom-nav {
@@ -352,7 +366,7 @@ const INFO_SECTIONS = [
 
 // ── State ──────────────────────────────────────────────────────
 let state = {
-  token: sessionStorage.getItem("gtoken") || null,
+  token: localStorage.getItem("gtoken") || null,
   week: 1, session: "P1",
   exercises: [], inputs: {}, expanded: null,
   voto: null, votoInput: null, savingVoto: false,
@@ -382,7 +396,7 @@ function login() {
   const params = new URLSearchParams(hash);
   const token = params.get("access_token");
   if (token) {
-    sessionStorage.setItem("gtoken", token);
+    localStorage.setItem("gtoken", token);
     state.token = token;
     window.history.replaceState(null, "", window.location.pathname);
   }
@@ -459,7 +473,7 @@ async function fetchSession() {
       `https://sheets.googleapis.com/v4/spreadsheets/${SHEET_ID}/values/${range}`,
       { headers: { Authorization: `Bearer ${state.token}` } }
     );
-    if (res.status === 401) { sessionStorage.removeItem("gtoken"); setState({ token: null, loading: false }); return; }
+    if (res.status === 401) { localStorage.removeItem("gtoken"); setState({ token: null, loading: false }); return; }
     const data = await res.json();
     const result = extractSession(data.values || [], state.session, state.week);
     const exercises = result.exercises;
@@ -474,7 +488,16 @@ async function fetchSession() {
     });
     const votoInfo = result.voto;
     const votoInput = votoInfo ? { voto: votoInfo.voto || "", note: votoInfo.note || "" } : null;
-    setState({ exercises, inputs, voto: votoInfo, votoInput, loading: false });
+
+    // Auto-expand the first exercise that isn't fully filled yet
+    let autoExpand = null;
+    for (let i = 0; i < exercises.length; i++) {
+      const sets = inputs[i].sets;
+      const isComplete = sets.length > 0 && sets.every(s => s.load && s.reps);
+      if (!isComplete) { autoExpand = i; break; }
+    }
+
+    setState({ exercises, inputs, voto: votoInfo, votoInput, loading: false, expanded: autoExpand });
   } catch (e) {
     showToast("Errore caricamento", true);
     setState({ loading: false });
@@ -484,7 +507,7 @@ async function fetchSession() {
 async function saveExercise(exIdx) {
   const ex = state.exercises[exIdx];
   const inp = state.inputs[exIdx];
-  if (!ex || !inp) return;
+  if (!ex || !inp) return false;
   setState({ saving: exIdx });
   const sheetName = state.week <= 6 ? "PROG 1_6" : "PROG 7_13";
   try {
@@ -503,10 +526,23 @@ async function saveExercise(exIdx) {
     );
     if (!res.ok) { const err = await res.json(); throw new Error(err.error?.message); }
     showToast("✓ " + ex.name.split(" ")[0] + " salvato");
+    return true;
   } catch(e) {
     showToast("Errore: " + e.message, true);
+    return false;
   } finally {
     setState({ saving: null });
+  }
+}
+
+async function saveAndNext(exIdx) {
+  const ok = await saveExercise(exIdx);
+  if (ok) {
+    setState({ expanded: exIdx + 1 });
+    setTimeout(() => {
+      const el = document.getElementById(`ex-card-${exIdx + 1}`);
+      if (el) el.scrollIntoView({ behavior: "smooth", block: "center" });
+    }, 50);
   }
 }
 
@@ -616,17 +652,20 @@ function renderApp() {
     showSelectors = false;
     headerSub = "Riferimenti e informazioni";
     content = renderHome(expandedInfo);
-  } else if (tab === "workout") {
+  } else {
     if (loading) {
       content = `<div class="loading"><div class="spinner"></div>Carico la scheda…</div>`;
     } else if (exercises.length === 0) {
       content = `<div class="empty">Nessun esercizio trovato per ${session} – Settimana ${week}.<br>Controlla che la scheda sia compilata dal coach.</div>`;
     } else {
-      content = exercises.map((ex, i) => renderExCard(ex, i, inputs[i], expanded === i, saving === i)).join("");
+      const doneCount = exercises.filter((ex, i) => {
+        const sets = inputs[i]?.sets || [];
+        return sets.length > 0 && sets.every(s => s.load && s.reps);
+      }).length;
+      content = renderProgressBar(doneCount, exercises.length);
+      content += exercises.map((ex, i) => renderExCard(ex, i, inputs[i], expanded === i, saving === i, exercises.length)).join("");
       content += renderVotoBox(voto, votoInput, savingVoto);
     }
-  } else {
-    content = renderVolume(exercises, inputs);
   }
 
   return `
@@ -655,9 +694,6 @@ function renderApp() {
         <button class="nav-btn ${tab === "workout" ? "active" : ""}" onclick="setTab('workout')">
           <span class="nav-icon">🏋️</span>Scheda
         </button>
-        <button class="nav-btn ${tab === "volume" ? "active" : ""}" onclick="setTab('volume')">
-          <span class="nav-icon">📊</span>Volume
-        </button>
       </div>
 
       ${toast ? `<div class="toast ${toast.error ? "error" : ""}">${toast.msg}</div>` : ""}
@@ -665,9 +701,19 @@ function renderApp() {
   `;
 }
 
-function renderExCard(ex, i, inp, isExpanded, isSaving) {
+function renderProgressBar(done, total) {
+  const pct = total ? Math.round((done / total) * 100) : 0;
+  return `
+    <div class="progress-row">
+      <div class="progress-track"><div class="progress-fill" style="width:${pct}%"></div></div>
+      <div class="progress-label">${done}/${total} esercizi completati</div>
+    </div>`;
+}
+
+function renderExCard(ex, i, inp, isExpanded, isSaving, totalEx) {
   inp = inp || { sets: [], feedback: "" };
   const filledSets = (inp.sets || []).filter(s => s.load || s.reps).length;
+  const allFilled = inp.sets && inp.sets.length > 0 && inp.sets.every(s => s.load && s.reps);
   const sets = isExpanded ? Array.from({ length: ex.numSerie }, (_, s) => {
     const sd = inp.sets?.[s] || { load: "", reps: "" };
     return `
@@ -678,19 +724,21 @@ function renderExCard(ex, i, inp, isExpanded, isSaving) {
           onchange="updateSet(${i}, ${s}, 'load', this.value)"
           oninput="updateSet(${i}, ${s}, 'load', this.value)">
         <input type="number" inputmode="numeric" class="set-input ${sd.reps ? "filled" : ""}"
-          value="${sd.reps}" placeholder="—"
+          value="${sd.reps}" placeholder="${ex.rep ? ex.rep.toString().split('\\n')[0].split('_')[0] : '—'}"
           onchange="updateSet(${i}, ${s}, 'reps', this.value)"
           oninput="updateSet(${i}, ${s}, 'reps', this.value)">
       </div>`;
   }).join("") : "";
 
+  const isLast = i === totalEx - 1;
+
   return `
-    <div class="ex-card ${isExpanded ? "expanded" : ""}">
+    <div class="ex-card ${isExpanded ? "expanded" : ""} ${allFilled ? "completed" : ""}" id="ex-card-${i}">
       <div class="ex-header" onclick="toggleEx(${i})">
-        <div class="ex-name">${ex.name}</div>
+        <div class="ex-name">${allFilled ? "✓ " : ""}${ex.name}</div>
         <div class="ex-meta">
           <span class="badge accent">${ex.numSerie}×${ex.rep}</span>
-          ${filledSets > 0 ? `<span class="badge">${filledSets}/${ex.numSerie}</span>` : ""}
+          ${filledSets > 0 ? `<span class="badge ${allFilled ? "badge-done" : ""}">${filledSets}/${ex.numSerie}</span>` : ""}
           <span class="chevron ${isExpanded ? "open" : ""}">▾</span>
         </div>
       </div>
@@ -713,9 +761,12 @@ function renderExCard(ex, i, inp, isExpanded, isSaving) {
               oninput="updateFeedback(${i}, this.value)">${inp.feedback || ""}</textarea>
           </div>
           ${ex.rest ? `<div style="font-size:13px;color:var(--muted)">⏱ Recupero: <strong style="color:var(--text)">${ex.rest}</strong></div>` : ""}
-          <button class="save-btn" onclick="saveExercise(${i})" ${isSaving ? "disabled" : ""}>
-            ${isSaving ? "SALVO…" : "SALVA SU SHEETS ↗"}
-          </button>
+          <div class="ex-actions">
+            <button class="save-btn" onclick="saveExercise(${i})" ${isSaving ? "disabled" : ""}>
+              ${isSaving ? "SALVO…" : "SALVA"}
+            </button>
+            ${!isLast ? `<button class="next-btn" onclick="saveAndNext(${i})" ${isSaving ? "disabled" : ""}>SALVA E VAI AL PROSSIMO →</button>` : ""}
+          </div>
         </div>
       ` : ""}
     </div>`;
@@ -770,29 +821,6 @@ function renderVotoBox(voto, votoInput, savingVoto) {
     </div>`;
 }
 
-function renderVolume(exercises, inputs) {
-  const totalSets = exercises.reduce((acc, ex) => acc + (ex.numSerie || 0), 0);
-  const doneSets = Object.values(inputs).reduce((acc, inp) => acc + (inp?.sets || []).filter(s => s.load || s.reps).length, 0);
-  const cards = exercises.map((ex, i) => {
-    const done = (inputs[i]?.sets || []).filter(s => s.load || s.reps).length;
-    const pct = ex.numSerie ? Math.round((done / ex.numSerie) * 100) : 0;
-    return `
-      <div class="vol-card">
-        <div><div class="vol-name">${ex.name}</div><div class="vol-sub">${ex.numSerie} serie · ${ex.rep} rep</div></div>
-        <div><div class="vol-num">${pct}%</div><div class="vol-pct">${done}/${ex.numSerie}</div></div>
-      </div>`;
-  }).join("");
-  return `
-    <div class="vol-section">
-      <div class="vol-title">Riepilogo seduta</div>
-      <div class="vol-card">
-        <div class="vol-name">Serie completate</div>
-        <div class="vol-num">${doneSets}<span style="font-size:14px;color:var(--muted)">/${totalSets}</span></div>
-      </div>
-      ${cards}
-    </div>`;
-}
-
 // ── Event handlers ──────────────────────────────────────────────
 function toggleEx(i) {
   setState({ expanded: state.expanded === i ? null : i });
@@ -809,7 +837,7 @@ function selectSession(s) {
   fetchSession();
 }
 function setTab(t) { setState({ tab: t }); }
-function logout() { sessionStorage.removeItem("gtoken"); setState({ token: null }); }
+function logout() { localStorage.removeItem("gtoken"); setState({ token: null }); }
 function attachEvents() {} // events are inline
 
 // ── Init ────────────────────────────────────────────────────────
