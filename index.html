@@ -727,11 +727,11 @@ function renderExCard(ex, i, inp, isExpanded, isSaving, totalEx) {
     return `
       <div class="set-row">
         <div class="set-num">${s + 1}</div>
-        <input type="text" inputmode="decimal" class="set-input ${sd.load ? "filled" : ""}"
+        <input type="text" inputmode="text" autocapitalize="off" autocomplete="off" class="set-input ${sd.load ? "filled" : ""}"
           value="${sd.load}" placeholder="—"
           onchange="updateSet(${i}, ${s}, 'load', this.value)"
           oninput="updateSet(${i}, ${s}, 'load', this.value)">
-        <input type="text" inputmode="decimal" class="set-input ${sd.reps ? "filled" : ""}"
+        <input type="text" inputmode="text" autocapitalize="off" autocomplete="off" class="set-input ${sd.reps ? "filled" : ""}"
           value="${sd.reps}" placeholder="${ex.rep ? ex.rep.toString().split('\\n')[0].split('_')[0] : '—'}"
           onchange="updateSet(${i}, ${s}, 'reps', this.value)"
           oninput="updateSet(${i}, ${s}, 'reps', this.value)">
