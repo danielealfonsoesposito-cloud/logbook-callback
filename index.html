@@ -481,8 +481,14 @@ async function fetchSession() {
     const exercises = result.exercises;
     const inputs = {};
     exercises.forEach((ex, i) => {
-      const cArr = ex.existing.carico.toString().split(",").map(s => s.trim());
-      const rArr = ex.existing.repFatte.toString().split(",").map(s => s.trim());
+      // New format uses " ; " as separator between sets (so commas/dashes are free for dropset notation like 20-15-10)
+      // Old saved data may still use plain comma — fall back to that if no semicolon is found
+      const splitSets = (str) => {
+        const s = str.toString();
+        return s.includes(";") ? s.split(";").map(x => x.trim()) : s.split(",").map(x => x.trim());
+      };
+      const cArr = splitSets(ex.existing.carico);
+      const rArr = splitSets(ex.existing.repFatte);
       inputs[i] = {
         sets: Array.from({ length: ex.numSerie }, (_, s) => ({ load: cArr[s] || "", reps: rArr[s] || "" })),
         feedback: ex.existing.feedback || "",
@@ -517,8 +523,8 @@ async function saveExercise(exIdx) {
     const body = {
       valueInputOption: "RAW",
       data: [
-        { range: `${sheetName}!${colLetter(ex.sheetColCarico)}${rowNum}`, values: [[inp.sets.map(s => s.load || "").join(", ")]] },
-        { range: `${sheetName}!${colLetter(ex.sheetColRepFatte)}${rowNum}`, values: [[inp.sets.map(s => s.reps || "").join(", ")]] },
+        { range: `${sheetName}!${colLetter(ex.sheetColCarico)}${rowNum}`, values: [[inp.sets.map(s => s.load || "").join(" ; ")]] },
+        { range: `${sheetName}!${colLetter(ex.sheetColRepFatte)}${rowNum}`, values: [[inp.sets.map(s => s.reps || "").join(" ; ")]] },
         { range: `${sheetName}!${colLetter(ex.sheetColFeedback)}${rowNum}`, values: [[inp.feedback || ""]] },
       ],
     };
@@ -721,11 +727,11 @@ function renderExCard(ex, i, inp, isExpanded, isSaving, totalEx) {
     return `
       <div class="set-row">
         <div class="set-num">${s + 1}</div>
-        <input type="number" inputmode="decimal" class="set-input ${sd.load ? "filled" : ""}"
+        <input type="text" inputmode="decimal" class="set-input ${sd.load ? "filled" : ""}"
           value="${sd.load}" placeholder="—"
           onchange="updateSet(${i}, ${s}, 'load', this.value)"
           oninput="updateSet(${i}, ${s}, 'load', this.value)">
-        <input type="number" inputmode="numeric" class="set-input ${sd.reps ? "filled" : ""}"
+        <input type="text" inputmode="decimal" class="set-input ${sd.reps ? "filled" : ""}"
           value="${sd.reps}" placeholder="${ex.rep ? ex.rep.toString().split('\\n')[0].split('_')[0] : '—'}"
           onchange="updateSet(${i}, ${s}, 'reps', this.value)"
           oninput="updateSet(${i}, ${s}, 'reps', this.value)">
@@ -747,7 +753,7 @@ function renderExCard(ex, i, inp, isExpanded, isSaving, totalEx) {
       ${isExpanded ? `
         <div class="ex-body">
           ${ex.tecnica ? `<div><div class="set-label">Tecnica</div><div class="tech-note">${ex.tecnica}</div></div>` : ""}
-          ${ex.note ? `<div><div class="set-label">Note</div><div class="tech-note">${ex.note}</div></div>` : ""}
+          ${ex.note ? `<div><div class="set-label">Note esercizio</div><div class="tech-note">${ex.note}</div></div>` : ""}
           <div>
             <div class="set-label">Serie · Rep target: <span style="color:var(--accent)">${ex.rep}</span></div>
             <div class="set-grid-header">
