@@ -127,7 +127,8 @@
 
     .set-grid-header { display: grid; grid-template-columns: 32px 1fr 1fr; gap: 6px; margin-bottom: 4px; }
     .input-head { font-size: 10px; color: var(--dim); text-align: center; }
-    .set-row { display: grid; grid-template-columns: 32px 1fr 1fr; gap: 6px; align-items: center; margin-bottom: 8px; }
+    .set-row { display: grid; grid-template-columns: 32px 1fr 1fr; gap: 6px; align-items: start; margin-bottom: 8px; }
+    .set-row .set-num { padding-top: 10px; }
     .set-num { font-family: 'Courier New', monospace; font-size: 12px; color: var(--dim); text-align: center; }
     .set-input {
       background: var(--surface-high); border: 1px solid var(--border);
@@ -138,6 +139,7 @@
     }
     .set-input:focus { outline: none; border-color: var(--accent); }
     .set-input.filled { border-color: var(--accent-dim); color: var(--accent); }
+    .prev-hint { font-size: 10px; color: var(--dim); text-align: center; margin-top: 3px; font-family: 'Courier New', monospace; }
 
     .feedback-area {
       background: var(--surface-high); border: 1px solid var(--border);
@@ -416,6 +418,14 @@ function extractSession(rows, sessionCode, weekNum) {
   let inSection = false, weekColStart = -1;
   let votoRow = -1, votoCol = -1, noteCol = -1;
   const weekInBlock = weekNum <= 6 ? weekNum - 1 : weekNum - 7;
+  const prevWeekNum = weekNum - 1;
+  const sameMesociclo = prevWeekNum >= 1 && (
+    (weekNum <= 6 && prevWeekNum <= 6) || (weekNum >= 7 && prevWeekNum >= 7)
+  );
+  const prevWeekInBlock = prevWeekNum <= 6 ? prevWeekNum - 1 : prevWeekNum - 7;
+  const prevWeekColStart = sameMesociclo ? 5 + prevWeekInBlock * 8 : -1;
+  const prevSrcRows = rows; // previous week within the same mesociclo is always in the same sheet/rows
+
   for (let r = 0; r < rows.length; r++) {
     const row = rows[r];
     if (!row) continue;
@@ -423,19 +433,24 @@ function extractSession(rows, sessionCode, weekNum) {
     if (!inSection) continue;
     if (row[0] === "ESERCIZIO") { weekColStart = 5 + weekInBlock * 8; continue; }
     if (row[0] && row[0] !== sessionCode && SESSIONS.includes(row[0])) break;
-    // Look for the "Voto Allenamento" header to locate the rating/notes box
+    // Look for the "Voto Allenamento" header in THIS week's column specifically (same offset as Carico)
     if (weekColStart >= 0 && votoRow === -1) {
-      for (let c = 0; c < row.length; c++) {
-        if (row[c] && row[c].toString().startsWith("Voto Allenamento")) {
-          votoRow = r + 1; // data is on the next row
-          votoCol = c;
-          noteCol = c + 1;
-          break;
-        }
+      const expectedVotoCol = weekColStart + 3;
+      if (row[expectedVotoCol] && row[expectedVotoCol].toString().startsWith("Voto Allenamento")) {
+        votoRow = r + 1; // data is on the next row
+        votoCol = expectedVotoCol;
+        noteCol = expectedVotoCol + 1;
       }
     }
     if (row[0] && row[0].toString().trim() !== "" && weekColStart >= 0) {
       const numSerie = parseInt(row[weekColStart]) || 3;
+      // Previous week's saved values for the SAME exercise row (used as greyed-out reference/comparison)
+      let prevCarico = "", prevRepFatte = "";
+      if (prevWeekColStart >= 0) {
+        const prevRow = prevSrcRows[r] || [];
+        prevCarico = prevRow[prevWeekColStart + 3] || "";
+        prevRepFatte = prevRow[prevWeekColStart + 4] || "";
+      }
       exList.push({
         name: row[0], note: row[2] || "", rest: row[3] || "",
         numSerie: isNaN(numSerie) ? 3 : numSerie,
@@ -445,6 +460,7 @@ function extractSession(rows, sessionCode, weekNum) {
           repFatte: row[weekColStart + 4] || "",
           feedback: row[weekColStart + 5] || "",
         },
+        previous: { carico: prevCarico, repFatte: prevRepFatte },
         sheetRow: r,
         sheetColCarico: weekColStart + 3,
         sheetColRepFatte: weekColStart + 4,
@@ -722,19 +738,40 @@ function renderExCard(ex, i, inp, isExpanded, isSaving, totalEx) {
   inp = inp || { sets: [], feedback: "" };
   const filledSets = (inp.sets || []).filter(s => s.load || s.reps).length;
   const allFilled = inp.sets && inp.sets.length > 0 && inp.sets.every(s => s.load && s.reps);
+
+  // Parse previous week's per-set values (same separator logic as current week's saved data)
+  const splitPrev = (str) => {
+    const s = (str || "").toString();
+    if (!s) return [];
+    return s.includes(";") ? s.split(";").map(x => x.trim()) : s.split(",").map(x => x.trim());
+  };
+  const prevCaricoArr = splitPrev(ex.previous?.carico);
+  const prevRepArr = splitPrev(ex.previous?.repFatte);
+  const hasPrev = prevCaricoArr.length > 0 || prevRepArr.length > 0;
+
   const sets = isExpanded ? Array.from({ length: ex.numSerie }, (_, s) => {
     const sd = inp.sets?.[s] || { load: "", reps: "" };
+    const prevLoad = prevCaricoArr[s] || "";
+    const prevReps = prevRepArr[s] || "";
+    const loadPlaceholder = !sd.load && prevLoad ? prevLoad : "—";
+    const repsPlaceholder = !sd.reps && prevReps ? prevReps : (ex.rep ? ex.rep.toString().split('\n')[0].split('_')[0] : "—");
     return `
       <div class="set-row">
         <div class="set-num">${s + 1}</div>
-        <input type="text" inputmode="text" autocapitalize="off" autocomplete="off" class="set-input ${sd.load ? "filled" : ""}"
-          value="${sd.load}" placeholder="—"
-          onchange="updateSet(${i}, ${s}, 'load', this.value)"
-          oninput="updateSet(${i}, ${s}, 'load', this.value)">
-        <input type="text" inputmode="text" autocapitalize="off" autocomplete="off" class="set-input ${sd.reps ? "filled" : ""}"
-          value="${sd.reps}" placeholder="${ex.rep ? ex.rep.toString().split('\\n')[0].split('_')[0] : '—'}"
-          onchange="updateSet(${i}, ${s}, 'reps', this.value)"
-          oninput="updateSet(${i}, ${s}, 'reps', this.value)">
+        <div>
+          <input type="text" inputmode="text" autocapitalize="off" autocomplete="off" class="set-input ${sd.load ? "filled" : ""} ${!sd.load && prevLoad ? "has-prev" : ""}"
+            value="${sd.load}" placeholder="${loadPlaceholder}"
+            onchange="updateSet(${i}, ${s}, 'load', this.value)"
+            oninput="updateSet(${i}, ${s}, 'load', this.value)">
+          ${prevLoad ? `<div class="prev-hint">sett. prec: ${prevLoad}</div>` : ""}
+        </div>
+        <div>
+          <input type="text" inputmode="text" autocapitalize="off" autocomplete="off" class="set-input ${sd.reps ? "filled" : ""} ${!sd.reps && prevReps ? "has-prev" : ""}"
+            value="${sd.reps}" placeholder="${repsPlaceholder}"
+            onchange="updateSet(${i}, ${s}, 'reps', this.value)"
+            oninput="updateSet(${i}, ${s}, 'reps', this.value)">
+          ${prevReps ? `<div class="prev-hint">sett. prec: ${prevReps}</div>` : ""}
+        </div>
       </div>`;
   }).join("") : "";
 
