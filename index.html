@@ -68,6 +68,18 @@
     .header-title { font-family: 'Courier New', monospace; font-size: 13px; font-weight: 700; color: var(--accent); letter-spacing: 0.08em; text-transform: uppercase; }
     .header-sub { font-size: 11px; color: var(--muted); margin-top: 2px; }
     .logout-btn { background: none; border: 1px solid var(--border); color: var(--muted); font-size: 11px; padding: 5px 12px; border-radius: 6px; cursor: pointer; -webkit-appearance: none; }
+    .expiry-banner {
+      background: #2a2410; border-bottom: 1px solid #6b5a1a;
+      padding: 10px 16px; display: flex; align-items: center; gap: 10px;
+      font-size: 12px; color: #e8d978; line-height: 1.4;
+    }
+    .expiry-banner span { flex: 1; }
+    .expiry-renew-btn {
+      background: var(--accent); color: #0f0f0f; border: none;
+      padding: 7px 14px; border-radius: 8px; font-size: 11px; font-weight: 700;
+      cursor: pointer; white-space: nowrap; -webkit-appearance: none;
+      font-family: 'Courier New', monospace;
+    }
 
     /* CHIPS */
     .selector-row { display: flex; gap: 8px; padding: 12px 16px; overflow-x: auto; scrollbar-width: none; border-bottom: 1px solid var(--border); -webkit-overflow-scrolling: touch; }
@@ -371,10 +383,13 @@ const INFO_SECTIONS = [
 // ── State ──────────────────────────────────────────────────────
 let state = {
   token: localStorage.getItem("gtoken") || null,
-  week: 1, session: "P1",
+  tokenExpiry: localStorage.getItem("gtoken_expiry") ? parseInt(localStorage.getItem("gtoken_expiry"), 10) : null,
+  expiryWarning: false,
+  week: parseInt(localStorage.getItem("current_week") || "1", 10),
+  session: localStorage.getItem("current_session") || "P1",
   exercises: [], inputs: {}, expanded: null,
   voto: null, votoInput: null, savingVoto: false,
-  loading: false, saving: null, tab: "home", toast: null, expandedInfo: null,
+  loading: false, saving: null, tab: localStorage.getItem("current_tab") || "home", toast: null, expandedInfo: null,
 };
 
 function setState(patch) {
@@ -399,10 +414,17 @@ function login() {
   const hash = window.location.hash.substring(1);
   const params = new URLSearchParams(hash);
   const token = params.get("access_token");
+  const expiresIn = parseInt(params.get("expires_in") || "3600", 10);
   if (token) {
     localStorage.setItem("gtoken", token);
+    const expiryTs = Date.now() + expiresIn * 1000;
+    localStorage.setItem("gtoken_expiry", expiryTs.toString());
     state.token = token;
+    state.tokenExpiry = expiryTs;
     window.history.replaceState(null, "", window.location.pathname);
+  } else {
+    const savedExpiry = localStorage.getItem("gtoken_expiry");
+    if (savedExpiry) state.tokenExpiry = parseInt(savedExpiry, 10);
   }
 })();
 
@@ -491,7 +513,7 @@ async function fetchSession() {
       `https://sheets.googleapis.com/v4/spreadsheets/${SHEET_ID}/values/${range}`,
       { headers: { Authorization: `Bearer ${state.token}` } }
     );
-    if (res.status === 401) { localStorage.removeItem("gtoken"); setState({ token: null, loading: false }); return; }
+    if (res.status === 401) { localStorage.removeItem("gtoken"); localStorage.removeItem("gtoken_expiry"); setState({ token: null, tokenExpiry: null, loading: false }); return; }
     const data = await res.json();
     const result = extractSession(data.values || [], state.session, state.week);
     const exercises = result.exercises;
@@ -511,7 +533,35 @@ async function fetchSession() {
       };
     });
     const votoInfo = result.voto;
-    const votoInput = votoInfo ? { voto: votoInfo.voto || "", note: votoInfo.note || "" } : null;
+    let votoInput = votoInfo ? { voto: votoInfo.voto || "", note: votoInfo.note || "" } : null;
+
+    // Recover any unsaved draft for this exact week+session (protects data if the token expired mid-workout)
+    let recoveredDraft = false;
+    try {
+      const draftKey = `draft_${state.week}_${state.session}`;
+      const draftRaw = localStorage.getItem(draftKey);
+      if (draftRaw) {
+        const draft = JSON.parse(draftRaw);
+        // Merge: draft values win over freshly-fetched sheet values, since they represent
+        // something the user typed that may not have made it to Sheets yet.
+        if (draft.inputs) {
+          Object.keys(draft.inputs).forEach(idx => {
+            const di = draft.inputs[idx];
+            if (inputs[idx] && di) {
+              const hasDraftData = (di.sets || []).some(s => s.load || s.reps) || di.feedback;
+              if (hasDraftData) {
+                inputs[idx] = di;
+                recoveredDraft = true;
+              }
+            }
+          });
+        }
+        if (draft.votoInput && (draft.votoInput.voto || draft.votoInput.note)) {
+          votoInput = draft.votoInput;
+          recoveredDraft = true;
+        }
+      }
+    } catch (e) { /* corrupted draft, ignore */ }
 
     // Auto-expand the first exercise that isn't fully filled yet
     let autoExpand = null;
@@ -522,6 +572,9 @@ async function fetchSession() {
     }
 
     setState({ exercises, inputs, voto: votoInfo, votoInput, loading: false, expanded: autoExpand });
+    if (recoveredDraft) {
+      showToast("📝 Recuperati dati non salvati in precedenza");
+    }
   } catch (e) {
     showToast("Errore caricamento", true);
     setState({ loading: false });
@@ -550,6 +603,7 @@ async function saveExercise(exIdx) {
     );
     if (!res.ok) { const err = await res.json(); throw new Error(err.error?.message); }
     showToast("✓ " + ex.name.split(" ")[0] + " salvato");
+    removeExerciseFromDraft(exIdx);
     return true;
   } catch(e) {
     showToast("Errore: " + e.message, true);
@@ -557,6 +611,25 @@ async function saveExercise(exIdx) {
   } finally {
     setState({ saving: null });
   }
+}
+
+// Removes only the just-saved exercise from the local draft, keeping drafts
+// of any other not-yet-saved exercises in the same session intact.
+function removeExerciseFromDraft(exIdx) {
+  try {
+    const draftKey = `draft_${state.week}_${state.session}`;
+    const draftRaw = localStorage.getItem(draftKey);
+    if (!draftRaw) return;
+    const draft = JSON.parse(draftRaw);
+    if (draft.inputs) delete draft.inputs[exIdx];
+    const hasRemainingInputs = draft.inputs && Object.keys(draft.inputs).length > 0;
+    const hasRemainingVoto = draft.votoInput && (draft.votoInput.voto || draft.votoInput.note);
+    if (!hasRemainingInputs && !hasRemainingVoto) {
+      localStorage.removeItem(draftKey);
+    } else {
+      localStorage.setItem(draftKey, JSON.stringify(draft));
+    }
+  } catch (e) { /* ignore */ }
 }
 
 async function saveAndNext(exIdx) {
@@ -591,6 +664,7 @@ async function saveVoto() {
     );
     if (!res.ok) { const err = await res.json(); throw new Error(err.error?.message); }
     showToast("✓ Voto e note salvati");
+    removeVotoFromDraft();
   } catch(e) {
     showToast("Errore: " + e.message, true);
   } finally {
@@ -598,9 +672,41 @@ async function saveVoto() {
   }
 }
 
+function removeVotoFromDraft() {
+  try {
+    const draftKey = `draft_${state.week}_${state.session}`;
+    const draftRaw = localStorage.getItem(draftKey);
+    if (!draftRaw) return;
+    const draft = JSON.parse(draftRaw);
+    delete draft.votoInput;
+    const hasRemainingInputs = draft.inputs && Object.keys(draft.inputs).length > 0;
+    if (!hasRemainingInputs) {
+      localStorage.removeItem(draftKey);
+    } else {
+      localStorage.setItem(draftKey, JSON.stringify(draft));
+    }
+  } catch (e) { /* ignore */ }
+}
+
 function showToast(msg, isError = false) {
   setState({ toast: { msg, error: isError } });
   setTimeout(() => setState({ toast: null }), 2500);
+}
+
+// ── Local autosave (debounced) — protects in-progress data if the token expires mid-workout ──
+let autosaveTimer = null;
+function scheduleAutosave() {
+  clearTimeout(autosaveTimer);
+  autosaveTimer = setTimeout(() => {
+    try {
+      const draftKey = `draft_${state.week}_${state.session}`;
+      localStorage.setItem(draftKey, JSON.stringify({
+        inputs: state.inputs,
+        votoInput: state.votoInput,
+        savedAt: Date.now(),
+      }));
+    } catch (e) { /* storage full or unavailable — fail silently, not critical */ }
+  }, 400);
 }
 
 function updateSet(exIdx, setIdx, field, val) {
@@ -609,17 +715,20 @@ function updateSet(exIdx, setIdx, field, val) {
   sets[setIdx] = { ...sets[setIdx], [field]: val };
   inputs[exIdx] = { ...inputs[exIdx], sets };
   state = { ...state, inputs }; // silent update, no re-render (keeps input focus)
+  scheduleAutosave();
 }
 
 function updateFeedback(exIdx, val) {
   const inputs = { ...state.inputs };
   inputs[exIdx] = { ...inputs[exIdx], feedback: val };
   state = { ...state, inputs }; // silent update, no re-render
+  scheduleAutosave();
 }
 
 function updateVoto(field, val) {
   const votoInput = { ...state.votoInput, [field]: val };
   state = { ...state, votoInput }; // silent update, no re-render
+  scheduleAutosave();
 }
 
 // ── Render ──────────────────────────────────────────────────────
@@ -657,7 +766,7 @@ function renderLogin() {
 }
 
 function renderApp() {
-  const { week, session, exercises, inputs, expanded, loading, saving, tab, toast, voto, votoInput, savingVoto, expandedInfo } = state;
+  const { week, session, exercises, inputs, expanded, loading, saving, tab, toast, voto, votoInput, savingVoto, expandedInfo, expiryWarning } = state;
   const sheetName = week <= 6 ? "PROG 1_6" : "PROG 7_13";
 
   const weekOptions = ALL_WEEKS.map(w =>
@@ -701,6 +810,13 @@ function renderApp() {
         </div>
         <button class="logout-btn" onclick="logout()">Esci</button>
       </div>
+
+      ${expiryWarning ? `
+        <div class="expiry-banner">
+          <span>⏳ Login in scadenza tra poco — i tuoi dati sono già al sicuro, ma rinnova per continuare a salvare su Sheets.</span>
+          <button class="expiry-renew-btn" onclick="renewLogin()">Rinnova ora</button>
+        </div>
+      ` : ""}
 
       ${showSelectors ? `
         <div class="week-select-row">
@@ -874,20 +990,56 @@ function toggleInfo(key) {
   setState({ expandedInfo: state.expandedInfo === key ? null : key });
 }
 function selectWeek(w) {
+  localStorage.setItem("current_week", w.toString());
   setState({ week: w, exercises: [], inputs: {}, expanded: null });
   fetchSession();
 }
 function selectSession(s) {
+  localStorage.setItem("current_session", s);
   setState({ session: s, exercises: [], inputs: {}, expanded: null });
   fetchSession();
 }
-function setTab(t) { setState({ tab: t }); }
-function logout() { localStorage.removeItem("gtoken"); setState({ token: null }); }
+function setTab(t) {
+  localStorage.setItem("current_tab", t);
+  setState({ tab: t });
+}
+function logout() {
+  localStorage.removeItem("gtoken");
+  localStorage.removeItem("gtoken_expiry");
+  setState({ token: null, tokenExpiry: null, expiryWarning: false });
+}
 function attachEvents() {} // events are inline
+
+// ── Token expiry watcher ──────────────────────────────────────────
+function checkTokenExpiry() {
+  if (!state.token || !state.tokenExpiry) return;
+  const msLeft = state.tokenExpiry - Date.now();
+  const minLeft = msLeft / 60000;
+
+  if (msLeft <= 0) {
+    // Token already expired — log out gracefully, data is already safe in localStorage
+    localStorage.removeItem("gtoken");
+    localStorage.removeItem("gtoken_expiry");
+    setState({ token: null, tokenExpiry: null, expiryWarning: false });
+    return;
+  }
+  if (minLeft <= 5 && !state.expiryWarning) {
+    setState({ expiryWarning: true });
+  } else if (minLeft > 5 && state.expiryWarning) {
+    setState({ expiryWarning: false });
+  }
+}
+setInterval(checkTokenExpiry, 15000); // check every 15s
+
+function renewLogin() {
+  // Re-login without losing in-progress data: all inputs are already mirrored to localStorage
+  login();
+}
 
 // ── Init ────────────────────────────────────────────────────────
 render();
 if (state.token) fetchSession();
+checkTokenExpiry();
 </script>
 </body>
 </html>
