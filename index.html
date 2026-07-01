@@ -385,6 +385,7 @@ let state = {
   token: localStorage.getItem("gtoken") || null,
   tokenExpiry: localStorage.getItem("gtoken_expiry") ? parseInt(localStorage.getItem("gtoken_expiry"), 10) : null,
   expiryWarning: false,
+  weekCompletion: {},
   week: parseInt(localStorage.getItem("current_week") || "1", 10),
   session: localStorage.getItem("current_session") || "P1",
   exercises: [], inputs: {}, expanded: null,
@@ -503,6 +504,28 @@ function extractSession(rows, sessionCode, weekNum) {
   return { exercises: exList, voto: votoData };
 }
 
+// Determines, for every week in the SAME mesociclo as weekNum, whether at least one
+// exercise (in any visible session) has been fully logged. Reuses the raw rows already
+// downloaded for the current session's sheet — no extra API calls needed.
+function computeMesocicloCompletion(rows, weekNum) {
+  const weeksInBlock = weekNum <= 6 ? [1,2,3,4,5,6] : [7,8,9,10,11,12];
+  const result = {};
+  for (const w of weeksInBlock) {
+    let anyDone = false;
+    for (const sess of VISIBLE_SESSIONS) {
+      const { exercises } = extractSession(rows, sess, w);
+      const hasCompleted = exercises.some(ex => {
+        const cArr = ex.existing.carico.toString().split(ex.existing.carico.toString().includes(";") ? ";" : ",").map(s => s.trim()).filter(Boolean);
+        const rArr = ex.existing.repFatte.toString().split(ex.existing.repFatte.toString().includes(";") ? ";" : ",").map(s => s.trim()).filter(Boolean);
+        return cArr.length >= ex.numSerie && rArr.length >= ex.numSerie;
+      });
+      if (hasCompleted) { anyDone = true; break; }
+    }
+    result[w] = anyDone;
+  }
+  return result;
+}
+
 async function fetchSession() {
   if (!state.token) return;
   setState({ loading: true, exercises: [], inputs: {}, expanded: null });
@@ -515,8 +538,14 @@ async function fetchSession() {
     );
     if (res.status === 401) { localStorage.removeItem("gtoken"); localStorage.removeItem("gtoken_expiry"); setState({ token: null, tokenExpiry: null, loading: false }); return; }
     const data = await res.json();
-    const result = extractSession(data.values || [], state.session, state.week);
+    const rawRows = data.values || [];
+    const result = extractSession(rawRows, state.session, state.week);
     const exercises = result.exercises;
+
+    // Zero extra cost: derive completion checkmarks for the whole mesociclo from the same fetch
+    const newCompletion = computeMesocicloCompletion(rawRows, state.week);
+    const weekCompletion = { ...state.weekCompletion, ...newCompletion };
+
     const inputs = {};
     exercises.forEach((ex, i) => {
       // New format uses " ; " as separator between sets (so commas/dashes are free for dropset notation like 20-15-10)
@@ -571,7 +600,7 @@ async function fetchSession() {
       if (!isComplete) { autoExpand = i; break; }
     }
 
-    setState({ exercises, inputs, voto: votoInfo, votoInput, loading: false, expanded: autoExpand });
+    setState({ exercises, inputs, voto: votoInfo, votoInput, loading: false, expanded: autoExpand, weekCompletion });
     if (recoveredDraft) {
       showToast("📝 Recuperati dati non salvati in precedenza");
     }
@@ -766,11 +795,11 @@ function renderLogin() {
 }
 
 function renderApp() {
-  const { week, session, exercises, inputs, expanded, loading, saving, tab, toast, voto, votoInput, savingVoto, expandedInfo, expiryWarning } = state;
+  const { week, session, exercises, inputs, expanded, loading, saving, tab, toast, voto, votoInput, savingVoto, expandedInfo, expiryWarning, weekCompletion } = state;
   const sheetName = week <= 6 ? "PROG 1_6" : "PROG 7_13";
 
   const weekOptions = ALL_WEEKS.map(w =>
-    `<option value="${w}" ${week === w ? "selected" : ""}>Settimana ${w}</option>`
+    `<option value="${w}" ${week === w ? "selected" : ""}>${weekCompletion[w] ? "✓ " : ""}Settimana ${w}</option>`
   ).join("");
 
   const sessions = VISIBLE_SESSIONS.map(s =>
